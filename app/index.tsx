@@ -1,4 +1,4 @@
-import { ActivityIndicator, Button, FlatList, ImageBackground, StyleSheet, TextInput } from 'react-native';
+import { ActivityIndicator, Button, FlatList, ImageBackground, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
 import { Text, View } from '@/components/Themed';
 import { getStarWarsCharacters } from '@/src/Api/GetStarWarsCharacters';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,66 +10,132 @@ const SERACH_PARAM_BASE = "&search="
 const PAGE_PARAM_BASE = "?page="
 
 
-export const getCharacterList = async (page: number, searchParam?: string) => {
-  const response = await fetch(`${QUERY_URL}${PAGE_PARAM_BASE + page}${searchParam ? SERACH_PARAM_BASE + searchParam : ""}`)
+export const getAllCharacterList = async () => {
+  let hasNextPage = true
+  let url = QUERY_URL
+  let characterList: any[] = []
 
-  const characterList = (await response.json()).results
+  do {
+    const response = await fetch(url)
+    const result = (await response.json())
 
+    characterList = [...characterList, ...result.results]
+
+    if (result.next !== null) {
+      url = result.next
+    } else {
+      hasNextPage = false
+    }
+  } while (hasNextPage);
 
   return characterList
 }
 
 export default function MainScreen() {
-
-  const [page, setPage] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
-  const [isListEndLoading, setIsListEndLoading] = useState(false)
+  const [allCharacters, setAllCharacters] = useState<any[]>([])
   const [characterList, setCharacterList] = useState<any[]>([])
   const [searchInput, setSerachInput] = useState("")
+  const [page, setPage] = useState(0)
+  const [selectedPageSize, setSelectedPageSize] = useState(25)
+  const [isPagedModeTurnedOn, setIsPagedModeTurnedOn] = useState(false)
 
   useEffect(() => {
-    loadData()
+    loadAllCharacter()
   }, [])
 
-  const loadData = async () => {
+  const loadAllCharacter = async () => {
     setIsLoading(true)
-    const newList = await getCharacterList(1, searchInput)
+    const newList = await getAllCharacterList()
+    setAllCharacters(newList)
     setCharacterList(newList)
     setIsLoading(false)
   }
 
-  const refreshList = async () => {
-    await loadData()
-  }
-
-  const loadNextPage = async () => {
-    if (searchInput.length > 0) {
+  useEffect(() => {
+    if (searchInput.length === 0) {
+      setCharacterList(allCharacters)
       return
     }
-    setIsListEndLoading(true)
-    setPage(page + 1)
-    const newList = await getCharacterList(page)
-    setCharacterList((s) => [...s, ...newList])
-    setIsListEndLoading(false)
+    setCharacterList(allCharacters.filter(item => (item.name as string).toLowerCase().includes(searchInput.toLowerCase())))
+  }, [searchInput])
+
+
+  const sortList = () => {
+    setSerachInput("")
+    const blueEyedCharacterList = allCharacters.filter(item => item.eye_color === "blue").sort(function (a, b) {
+      const x = a["name"]
+      const y = b["name"]
+      return (x > y) - (y > x);
+    })
+
+    const creationSortedCharacterList = allCharacters.filter(item => item.eye_color !== "blue").sort(function (a, b) {
+      const x = new Date(a["created"]).getTime()
+      const y = new Date(b["created"]).getTime()
+      return (x > y) - (y > x);
+    })
+
+    setCharacterList([...blueEyedCharacterList, ...creationSortedCharacterList])
+  }
+
+  useEffect(() => {
+    if (isPagedModeTurnedOn) {
+      setPage(0)
+      setCharacterList(allCharacters.slice(page * selectedPageSize, (page * selectedPageSize) + selectedPageSize))
+    }
+  }, [isPagedModeTurnedOn])
+
+  const changePageSize = (size: number) => {
+    setSelectedPageSize(size)
+    setCharacterList(allCharacters.slice(page * size, (page * size) + size))
+  }
+
+  const loadPrevPage = () => {
+    setPageAndChangeList(page - 1)
+
+  }
+
+  const loadNextPage = () => {
+    setPageAndChangeList(page + 1)
+  }
+
+  const setPageAndChangeList = (page: number) => {
+    setPage(page)
+    const newList = allCharacters.slice(page * selectedPageSize, (page * selectedPageSize) + selectedPageSize)
+    if (newList.length > 0) {
+      setCharacterList(newList)
+    }
   }
 
   const render = () => {
     return (
       <ImageBackground style={styles.background} source={require("../assets/images/starwars.jpg")}>
         <SafeAreaView style={styles.container}>
+          <Text style={styles.title}>STAR WARS</Text>
           <TextInput
             testID="input"
             style={styles.input}
             value={searchInput}
             onChangeText={setSerachInput}
-            onBlur={refreshList}
             selectionColor={"white"}
           />
+          <View style={styles.baseArea}>
+            <Button title='Character List Sorting' onPress={sortList} />
+            <Button title='Table and Pagination' onPress={() => setIsPagedModeTurnedOn(s => !s)} />
+          </View>
+          {isPagedModeTurnedOn && <View style={styles.baseArea}>
+            {renderPageButton(25)}
+            {renderPageButton(50)}
+            {renderPageButton(75)}
+            {renderPageButton(100)}
+          </View>}
           {renderContent()}
         </SafeAreaView>
       </ImageBackground>
     );
   }
+
+  const renderPageButton = (size: number) => <Button title={size.toString()} color={selectedPageSize === size ? dark_blue : undefined} onPress={() => changePageSize(size)} />
 
   const renderContent = () => {
 
@@ -89,20 +155,20 @@ export default function MainScreen() {
           data={characterList}
           renderItem={renderItem}
           ItemSeparatorComponent={() => <View style={styles.spacing} />}
-          onEndReached={loadNextPage}
           ListFooterComponent={renderListFooter}
         />
       </>
     );
   }
 
-  const renderListFooter = () => isListEndLoading ?
-    <>
-      <View style={styles.spacing} />
-      <ActivityIndicator size={"large"} color={"white"} />
-      <View style={styles.spacing} />
-    </>
-    : <View style={styles.spacing} />
+  const renderListFooter = () => isPagedModeTurnedOn ? <>
+    <View style={styles.spacing} />
+    <View style={styles.baseArea}>
+      {page > 0 ? <Button title='prev page' onPress={loadPrevPage} /> : <View />}
+      <Button title='next page' onPress={loadNextPage} />
+    </View>
+    <View style={styles.spacing} />
+  </> : <View style={styles.spacing} />
 
   const renderItem = (data: { item: any, index: number }) => {
     return <View style={styles.itemArea}>
@@ -112,6 +178,8 @@ export default function MainScreen() {
 
   return render()
 }
+
+const dark_blue = "rgb(0,0,139)"
 
 const styles = StyleSheet.create({
   background: {
@@ -125,6 +193,23 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  title: {
+    fontSize: 20,
+    color: "white",
+    alignSelf: "center",
+    paddingBottom: 20,
+  },
+  baseArea: {
+
+    flexDirection: "row",
+    width: "100%",
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    justifyContent: "space-between",
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "transparent"
   },
   input: {
     width: "90%",

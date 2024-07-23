@@ -1,4 +1,4 @@
-import MainScreen, { getCharacterList } from '../../app/index';
+import MainScreen, { getCharacterList } from '../../app/indexPaged';
 import React from 'react';
 import renderer from 'react-test-renderer';
 import { render, screen, fireEvent } from '@testing-library/react-native'
